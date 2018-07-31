@@ -1,0 +1,164 @@
+/***************************************************************************************
+*written by Demietrius Huff on 7/13/18
+*last updated 7/19/18
+*sleeping TA
+****************************************************************************************/
+
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <semaphore.h>
+
+// The maximum number of student threads.
+#define MAX_Student 25
+
+// Function prototypes...
+void *customer(void *num);
+void *TA(void *);
+
+void randwait(int secs);
+
+//global variables
+int waitlist = 0;
+int numStu = 0;
+
+// Define the semaphores.
+
+// waitingRoom Limits the # of Students allowed 
+// to enter the waiting room at one time.
+sem_t waitingRoom;   
+
+// mutually exclusive access to
+// the  chair.
+sem_t TAChair;
+
+// TAPillow is used to allow the TA to sleep
+// until a student arrives.
+sem_t TAPillow;
+
+// seatBelt is used to make the students wait until
+// the TA is done helping student. 
+sem_t seatBelt;
+
+// Flag to stop the TA thread when all students are done
+
+int allDone = 0;
+
+int main(int argc, char *argv[]) {
+    pthread_t btid;
+    pthread_t tid[MAX_Student];
+    long RandSeed;
+    int i, students, numChairs;
+    int Number[MAX_Student];
+
+	//get input from user
+	printf("how many students do you want? ");
+	scanf("%d",&students);
+    
+    	numChairs = 3;
+ 
+
+	printf("\n\tSleeping TA.c\n\n");
+
+	// Initialize the numbers array.
+	for (i=0; i<MAX_Student; i++) {
+	    Number[i] = i;
+	}
+
+	// Initialize the semaphores with initial values...
+	sem_init(&waitingRoom, 0, numChairs);
+	sem_init(&TAChair, 0, 1);
+	sem_init(&TAPillow, 0, 0);
+	sem_init(&seatBelt, 0, 0);
+
+	// Create the TA.
+	pthread_create(&btid, NULL, TA, NULL);
+
+	// Create the student.
+	for (i=1; i <= students; i++) {
+		pthread_create(&tid[i], NULL, customer, (void *)&Number[i]);
+		sleep(1);
+	}
+
+	// Join each of the threads to wait for them to finish.
+	for (i=1; i <= students; i++) {
+		pthread_join(tid[i],NULL);
+	}
+
+	// When all of the students are finished, kill the
+	// TA thread.
+	allDone = 1;
+	sem_post(&TAPillow);  
+	pthread_join(btid,NULL);    
+}
+
+void *customer(void *number) {
+	int num = *(int *)number;
+	int curStudent = 0;
+
+
+	// students heading to the TA office
+	sleep(5);
+	printf("[STUDENT THREAD] Student %d is coming.\n", num);
+	numStu++;
+	
+	// Wait for space to open up in the waiting room
+	sem_wait(&waitingRoom);
+	printf("[STUDENT THREAD] Student %d is sitting on chair # %d.\n", num, waitlist+1);
+	waitlist++;
+	// Wait for the TA chair to become free.
+	sem_wait(&TAChair);
+	curStudent++;
+
+	// The chair is free so give up your spot in the
+	// waiting room.
+	sem_post(&waitingRoom);
+	waitlist--;
+
+	// Wake up the TA...
+	if(numStu ==1){
+		printf("[STUDENT THREAD] Student %d is waking the TA.\n", num);
+		sem_post(&TAPillow);
+	}
+
+	// Wait for the TA to finish with student.
+	sem_wait(&seatBelt);
+	printf("[STUDENT THREAD] Student waiting = %d. Students in the office = %d.\n", waitlist, curStudent);	
+
+	// Give up the chair.
+	sem_post(&TAChair);
+	printf("[STUDENT THREAD] Student %d leaving the TA office.\n", num);
+	curStudent--;
+
+}
+
+void *TA(void *junk) {
+	printf("[TA THREAD] TA is in his office\n");
+	sleep(1);
+	// While there are still students to be serviced
+	// Our TA will know if there are more students on their way
+	while (!allDone) {
+
+		// Sleep until someone arrives and wakes you
+		if(numStu <= 1){
+			printf("[TA THREAD] TA IS SLEEPING.\n");
+			sem_wait(&TAPillow);
+		}
+
+		// Skip this stuff at the end...
+		if (!allDone) {
+
+			// Take a random amount of time to help student
+			printf("[TA THREAD] TA is with a student.\n");
+        		sleep(10);
+        		printf("[TA THREAD] TA is done with student.\n");
+
+        		// Release the student when TA is done
+       			sem_post(&seatBelt);
+		}else {
+			printf("The TA is done for the day.\n");
+		}
+	}
+}
+
